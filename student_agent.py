@@ -368,7 +368,8 @@ patterns = [
     [(0, 1), (0, 2), (1, 1), (1, 2), (2, 1)],
 ]
 
-
+import sys
+sys.modules['__main__'].NTupleApproximator = NTupleApproximator
 approximator = NTupleApproximator(board_size=4, patterns=patterns)
 with open("best_td_approximator.pkl", "rb") as f:
     approximator = pickle.load(f)
