@@ -8,7 +8,122 @@ import matplotlib.pyplot as plt
 import copy
 import random
 import math
+import copy
+import random
+import math
+import numpy as np
+from collections import defaultdict
+class TD_MCTS_Node:
+    def __init__(self, state, score, parent=None, action=None):
+        """
+        state: current board state (numpy array)
+        score: cumulative score at this node
+        parent: parent node (None for root)
+        action: action taken from parent to reach this node
+        """
+        self.state = state
+        self.score = score
+        self.parent = parent
+        self.action = action
+        self.children = {}
+        self.visits = 0
+        self.total_reward = 0.0
+        # List of untried actions based on the current state's legal moves
+        self.untried_actions = [a for a in range(4) if env.is_move_legal(a)]
 
+    def fully_expanded(self):
+        # A node is fully expanded if no legal actions remain untried.
+        return len(self.untried_actions) == 0
+class TD_MCTS:
+    def __init__(self, env, approximator, iterations=500, exploration_constant=1.41, rollout_depth=10, gamma=0.99):
+        self.env = env
+        self.approximator = approximator
+        self.iterations = iterations
+        self.c = exploration_constant
+        self.rollout_depth = rollout_depth
+        self.gamma = gamma
+
+    def create_env_from_state(self, state, score):
+        # Create a deep copy of the environment with the given state and score.
+        new_env = copy.deepcopy(self.env)
+        new_env.board = state.copy()
+        new_env.score = score
+        return new_env
+
+    def select_child(self, node):
+        # TODO: Use the UCT formula: Q + c * sqrt(log(parent.visits)/child.visits) to select the best child.
+        values = []
+        for action, child in node.children.items():
+            if child.visits == 0:
+                uct_value = np.inf
+                values.append((uct_value, child))
+            else:
+                uct_value = child.total_reward / child.visits + self.c * np.sqrt(np.log(node.visits) / child.visits)
+                values.append((uct_value, child))
+        best_value, best_child = max(values, key=lambda x: x[0])
+        return best_child
+
+    def rollout(self, sim_env, depth):
+        # TODO: Perform a random rollout until reaching the maximum depth or a terminal state.
+        # TODO: Use the approximator to evaluate the final state.
+        total_reward = 0
+        for _ in range(depth):
+            legal_moves = [action for action in range(4) if sim_env.is_move_legal(action)]
+            if not legal_moves:
+                break
+            action = random.choice(legal_moves)
+            _, _, done, _ = sim_env.step(action, spawn_tile=False)
+            total_reward += approximator.value(sim_env.board)
+            if done:
+                break
+        return total_reward
+
+    def backpropagate(self, node, reward):
+        # TODO: Propagate the obtained reward back up the tree.
+        while node is not None:
+            node.visits += 1
+            node.total_reward += reward
+            node = node.parent
+
+    def run_simulation(self, root):
+        node = root
+        sim_env = self.create_env_from_state(node.state, node.score)
+
+        # TODO: Selection: Traverse the tree until reaching an unexpanded node.
+        done = False
+        while node.fully_expanded() and node.children and not done:
+            node = self.select_child(node)
+            _, reward, done, _ = sim_env.step(node.action)
+            reward += approximator.value(sim_env.board)
+            sim_env.add_random_tile()
+        
+        # TODO: Expansion: If the node is not terminal, expand an untried action.
+        if not node.fully_expanded():
+            action = random.choice(node.untried_actions)
+            sim_env.step(action, spawn_tile=False)
+            after_state = sim_env.board.copy()
+            new_score = approximator.value(after_state)
+            new_node = TD_MCTS_Node(after_state, new_score, parent=node, action=action)
+            node.children[action] = new_node
+            node.untried_actions.remove(action)
+            node = new_node
+
+        # Rollout: Simulate a random game from the expanded node.
+        rollout_reward = self.rollout(sim_env, self.rollout_depth)
+        # Backpropagate the obtained reward.
+        self.backpropagate(node, rollout_reward)
+    def best_action_distribution(self, root):
+        # Compute the normalized visit count distribution for each child of the root.
+        total_visits = sum(child.visits for child in root.children.values())
+        distribution = np.zeros(4)
+        best_visits = -1
+        best_action = None
+        for action, child in root.children.items():
+            distribution[action] = child.visits / total_visits if total_visits > 0 else 0
+            if child.visits > best_visits:
+                best_visits = child.visits
+                best_action = action
+        return best_action, distribution
 
 class Game2048Env(gym.Env):
     def __init__(self):
@@ -178,121 +293,83 @@ class Game2048Env(gym.Env):
             raise ValueError("Invalid action")
         return not np.array_equal(self.board, temp_board)
 
+def rot90(pattern):
+    return tuple((y, 3 - x) for x, y in pattern)
+def rot180(pattern):
+    return tuple((3 - x, 3 - y) for x, y in pattern)
+def rot270(pattern):
+    return tuple((3 - y, x) for x, y in pattern)
+def flip(pattern):
+    return tuple((x, 3 - y) for x, y in pattern)
+def flip_rot90(pattern):
+    return tuple((3 - y, 3 - x) for x, y in pattern)
+def flip_rot180(pattern):
+    return tuple((3 - x, y) for x, y in pattern)
+def flip_rot270(pattern):
+    return tuple((y, x) for x, y in pattern)
 
+class NTupleApproximator:
+    def __init__(self, board_size, patterns):
+        self.board_size = board_size
+        self.patterns = patterns
+        self.weights = [defaultdict(float) for _ in patterns]
+        self.symmetry_patterns = []
+        for pattern in self.patterns:
+            syms = self.generate_symmetries(pattern)
+            self.symmetry_patterns.append(syms)
 
-import copy
-import random
-import math
-import numpy as np
+    def generate_symmetries(self, pattern):
+        sym = []
+        sym.append(pattern)
+        sym.append(rot90(pattern))
+        sym.append(rot180(pattern))
+        sym.append(rot270(pattern))
+        sym.append(flip(pattern))
+        sym.append(flip_rot90(pattern))
+        sym.append(flip_rot180(pattern))
+        sym.append(flip_rot270(pattern))
+        return sym
+    def tile_to_index(self, tile):
+        if tile == 0:
+            return 0
+        else:
+            return int(math.log(tile, 2))
 
-# Note: This MCTS implementation is almost identical to the previous one,
-# except for the rollout phase, which now incorporates the approximator.
-
-# Node for TD-MCTS using the TD-trained value approximator
-class TD_MCTS_Node:
-    def __init__(self, state, score, parent=None, action=None):
-        """
-        state: current board state (numpy array)
-        score: cumulative score at this node
-        parent: parent node (None for root)
-        action: action taken from parent to reach this node
-        """
-        self.state = state
-        self.score = score
-        self.parent = parent
-        self.action = action
-        self.children = {}
-        self.visits = 0
-        self.total_reward = 0.0
-        # List of untried actions based on the current state's legal moves
-        self.untried_actions = [a for a in range(4) if env.is_move_legal(a)]
-
-    def fully_expanded(self):
-        # A node is fully expanded if no legal actions remain untried.
-        return len(self.untried_actions) == 0
-
-
-# TD-MCTS class utilizing a trained approximator for leaf evaluation
-class TD_MCTS:
-    def __init__(self, env, approximator, iterations=500, exploration_constant=1.41, rollout_depth=10, gamma=0.99):
-        self.env = env
-        self.approximator = approximator
-        self.iterations = iterations
-        self.c = exploration_constant
-        self.rollout_depth = rollout_depth
-        self.gamma = gamma
-
-    def create_env_from_state(self, state, score):
-        # Create a deep copy of the environment with the given state and score.
-        new_env = copy.deepcopy(self.env)
-        new_env.board = state.copy()
-        new_env.score = score
-        return new_env
-
-    def select_child(self, node):
-        # TODO: Use the UCT formula: Q + c * sqrt(log(parent.visits)/child.visits) to select the best child.
+    def get_feature(self, board, coords):
+        return tuple(self.tile_to_index(board[x, y]) for x, y in coords)
+    def value(self, board):
         values = []
-        for action, child in node.children.items():
-            if child.visits == 0:
-                uct_value = np.inf
-                values.append((uct_value, child))
-            else:
-                uct_value = child.total_reward / child.visits + self.c * np.sqrt(np.log(node.visits) / child.visits)
-                values.append((uct_value, child))
-        best_value, best_child = max(values, key=lambda x: x[0])
-        return best_child
-
-    def rollout(self, sim_env, depth):
-        # TODO: Perform a random rollout until reaching the maximum depth or a terminal state.
-        # TODO: Use the approximator to evaluate the final state.
-        total_reward = 0
-        for _ in range(depth):
-            legal_moves = [action for action in range(4) if sim_env.is_move_legal(action)]
-            if not legal_moves:
-                break
-            action = random.choice(legal_moves)
-            _, _, done, _ = sim_env.step(action, spawn_tile=False)
-            total_reward += approximator.value(sim_env.board)
-            if done:
-                break
-        return total_reward
-
-    def backpropagate(self, node, reward):
-        # TODO: Propagate the obtained reward back up the tree.
-        while node is not None:
-            node.visits += 1
-            node.total_reward += reward
-            node = node.parent
-
-    def run_simulation(self, root):
-        node = root
-        sim_env = self.create_env_from_state(node.state, node.score)
-
-        # TODO: Selection: Traverse the tree until reaching an unexpanded node.
-        done = False
-        while node.fully_expanded() and node.children and not done:
-            node = self.select_child(node)
-            _, reward, done, _ = sim_env.step(node.action)
-            reward += approximator.value(sim_env.board)
-            sim_env.add_random_tile()
-        
-        # TODO: Expansion: If the node is not terminal, expand an untried action.
-        if not node.fully_expanded():
-            action = random.choice(node.untried_actions)
-            sim_env.step(action, spawn_tile=False)
-            after_state = sim_env.board.copy()
-            new_score = approximator.value(after_state)
-            new_node = TD_MCTS_Node(after_state, new_score, parent=node, action=action)
-            node.children[action] = new_node
-            node.untried_actions.remove(action)
-            node = new_node
-
-        # Rollout: Simulate a random game from the expanded node.
-        rollout_reward = self.rollout(sim_env, self.rollout_depth)
-        # Backpropagate the obtained reward.
-        self.backpropagate(node, rollout_reward)
+        for i in range(len(self.patterns)):
+            pattern_values = []
+            for sym in self.symmetry_patterns[i]:
+                index = tuple(self.get_feature(board, sym))
+                pattern_values.append(self.weights[i][index])
+            values.append(np.mean(pattern_values)) 
+        return sum(values)
+    def update(self, board, delta, alpha):
+        for i in range(len(self.patterns)):
+            for p in self.symmetry_patterns[i]:
+                feature = self.get_feature(board, p)
+                self.weights[i][feature] += alpha * delta
 
 
+
+
+patterns = [
+    [(0, 0), (0, 1), (0, 2), (1, 1)],  
+    [(0, 0), (0, 1), (0, 2), (1, 1)],
+  
+  [(0, 1), (0, 2), (1, 1), (1, 2)],
+    [(1, 0), (1, 1), (2, 1), (2, 2)],
+    [(0, 0), (0, 1), (0, 2), (0, 3)],
+    [(1, 0), (1, 1), (1, 2), (1, 3)],
+    [(0, 0), (0, 1), (0, 2), (1, 1), (2, 1)],
+    [(1, 2), (2, 2), (2, 3), (3, 1), (3, 2)],
+    [(0, 1), (0, 2), (1, 1), (1, 2), (2, 1)],
+]
+
+
+approximator = NTupleApproximator(board_size=4, patterns=patterns)
 with open("best_td_approximator.pkl", "rb") as f:
     approximator = pickle.load(f)
 td_mcts = TD_MCTS(Game2048Env(), approximator, iterations=50, exploration_constant=1.41, rollout_depth=3, gamma=0.99)
@@ -307,7 +384,5 @@ def get_action(state, score):
 
     # Select the best action (based on highest visit count)
     best_act, _ = td_mcts.best_action_distribution(root)
+    return best_act
     
-    # You can submit this random agent to evaluate the performance of a purely random strategy.
-
-
