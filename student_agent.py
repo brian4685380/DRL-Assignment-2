@@ -372,7 +372,7 @@ sys.modules['__main__'].NTupleApproximator = NTupleApproximator
 approximator = NTupleApproximator(board_size=4, patterns=patterns)
 with open("best_td_approximator.pkl", "rb") as f:
     approximator = pickle.load(f)
-td_mcts = TD_MCTS(Game2048Env(), approximator, iterations=50, exploration_constant=1.41, rollout_depth=1, gamma=0.99)
+td_mcts = TD_MCTS(Game2048Env(), approximator, iterations=50, exploration_constant=10, rollout_depth=3, gamma=0.99)
 env = Game2048Env()
 
 def get_action(state, score):
