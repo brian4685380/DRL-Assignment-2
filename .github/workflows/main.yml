@@ -31,5 +31,8 @@ jobs:
     - name: 3. Ensure env.so is executable
       run: chmod +x env.cpython-38-x86_64-linux-gnu.so
 
+    - name: 4. Download checkpoint
+      run: wget -O best_avg_remix-td_approximator.pkl "https://www.dropbox.com/scl/fi/a6zdmvqqv26cgea7uvm4o/best_avg_remix-td_approximator.pkl?rlkey=vzoiucdzc54zws8d68i9buy0k&st=0fhuzj0r&dl=1"
+
     - name: 4. Run Evaluation
       run: python eval.py --token a91aae52cff9ef65932db06b150ffd47
