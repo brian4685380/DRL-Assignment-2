@@ -263,7 +263,7 @@ class TD_MCTS:
         env.board = board.copy()
         return env
 
-td_mcts = TD_MCTS(approximator = approximator, iterations = 50, exploration_constant = 0, rollout_depth = 0)
+td_mcts = TD_MCTS(approximator = _GLOBAL_APPROXIMATOR, iterations = 50, exploration_constant = 0, rollout_depth = 0)
 env = Game2048Env()
 
 def get_action(state, score):
