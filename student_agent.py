@@ -119,49 +119,34 @@ class TD_MCTS:
         
     def select(self, node, legal_actions):
         update_path = []
-        
-        while True:
-            # Handle stateNode (player's turn to select an action)
-            if isinstance(node, stateNode):
-                if legal_actions is None:
-                    sim_env = self.create_env_from_state(node.state)
-                    legal_actions = [a for a in range(4) if sim_env.is_move_legal(a)]
-                
-                if not legal_actions:  # No legal moves
+        # TODO: strange
+        while isinstance(node, stateNode):
+            if legal_actions is None:
+                sim_env = self.create_env_from_state(node.state)
+                legal_actions = [a for a in range(4) if sim_env.is_move_legal(a)]
+
+            if not node.is_fully_expanded(legal_actions):
+                action = node.select_child(legal_actions, self.c)
+                if action not in node.child_nodes:
                     return node, update_path
-                    
-                if not node.is_fully_expanded(legal_actions):
-                    # Return this node for expansion if not all actions are expanded
-                    for action in legal_actions:
-                        if action not in node.child_nodes:
-                            return node, update_path
-                
-                # Select best child according to UCB
+                update_path.append((node, action))
+                node = node.child_nodes[action]
+
+            else:
                 action = node.select_child(legal_actions, self.c)
                 update_path.append((node, action))
                 node = node.child_nodes[action]
-                legal_actions = None  # Reset for next node
-            
-            # Handle afterStateNode (environment's turn to place a tile)
-            elif isinstance(node, afterStateNode):
-                empty_cells = list(zip(*np.where(node.state == 0)))
-                
-                if not empty_cells:  # Terminal state with no empty cells
-                    return node, update_path
-                    
-                if not node.is_fully_expanded(empty_cells):
-                    # Return this node for expansion
-                    return node, update_path
-                
-                # All empty cells have been expanded, select one according to policy
-                # Use the existing select_child method which doesn't take parameters
-                placement = node.select_child()
-                update_path.append((node, placement))
-                node = node.child_nodes[placement]
-            
-            # We've reached a leaf node that's not a stateNode or afterStateNode
-            else:
+                legal_actions = None
+        while isinstance(node, afterStateNode):
+            empty_cells = list(zip(*np.where(node.state == 0)))
+            # TODO: strange
+            if not empty_cells or node.is_fully_expanded(empty_cells):
                 return node, update_path
+
+            return node, update_path
+        return node, update_path
+
+
 
     
     def expand(self, node):
